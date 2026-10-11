@@ -1,6 +1,5 @@
 import { Router } from "express";
 import * as Sentry from "@sentry/node";
-import { config } from "../config";
 import { asyncHandler, parseGenerateQuest } from "../http";
 import { traced } from "../sentry";
 import { synthesizeSpeech } from "../services/elevenlabs";
@@ -20,22 +19,7 @@ questRouter.post(
       "quest.pipeline",
       { "memoryquest.stage": "quest" },
       async () => {
-        const completion = await traced(
-          "llm.gemma",
-          "gen_ai.request",
-          {
-            "gen_ai.system": "ollama",
-            "gen_ai.request.model": config.ollamaModel,
-            "gen_ai.operation": "quest",
-          },
-          async (span) => {
-            const generated = await generateQuestText(input);
-            span.setAttribute("gen_ai.usage.input_tokens", generated.promptTokens);
-            span.setAttribute("gen_ai.usage.output_tokens", generated.completionTokens);
-            span.setAttribute("gen_ai.total_duration_ns", generated.totalDurationNs);
-            return generated;
-          },
-        );
+        const completion = await generateQuestText(input);
 
         const speech = await traced(
           "tts.elevenlabs",

@@ -1,5 +1,5 @@
 export interface GenerateQuestRequest {
-  userLocation?: string;
+  questIntention: string;
   previousMemories?: string[];
 }
 

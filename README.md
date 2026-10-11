@@ -1,6 +1,6 @@
 #Little Time Machine
 
-Outdoor nostalgia quests for the Hacktoberfest Open-Source AI Challenge, Week 1 ("Touch Grass"). The screen's job is short: Gemma, running locally through Ollama, writes a two-sentence prompt that sends someone outside. They come back with a photo and a few written sentences about what they found. The same local model turns that writing into a three-sentence reflection, ElevenLabs narrates it, and MongoDB Atlas keeps the card.
+Outdoor nostalgia quests for the Hacktoberfest Open-Source AI Challenge, Week 1 ("Touch Grass"). Each walk offers one specific invitation: a childhood toy, a sports belonging, a book, a playing ground, a route, or a place where the person used to spend time with someone. They come back with a photo and a few written sentences. Gemma, running locally through Ollama, turns that writing into a three-sentence reflection, ElevenLabs narrates it, and MongoDB Atlas keeps the card.
 
 Open weights do the reasoning. The written experience stays on this machine until you choose to store the finished card.
 
@@ -10,7 +10,6 @@ Open weights do the reasoning. The written experience stays on this machine unti
 flowchart LR
   Client["Phone or browser"] --> Quest["POST /api/quest/generate"]
   Client --> Memory["POST /api/memory/process"]
-  Quest --> Gemma["Ollama gemma2:2b"]
   Quest --> Voice["ElevenLabs TTS"]
   Memory --> Gemma
   Gemma --> Voice
@@ -21,7 +20,7 @@ flowchart LR
 
 ## Prize categories this server actually uses
 
-- Best Use of Gemma — `gemma2:2b` via local Ollama for the quest and the reflection
+- Best Use of Gemma — `gemma2:2b` via local Ollama for the reflection
 - Best Use of ElevenLabs — narrated quest and narrated reflection
 - Best Use of MongoDB Atlas — the memory card
 - Best Use of Sentry Agent Tracing — nested spans for Gemma, ElevenLabs, and the Atlas write
@@ -55,7 +54,7 @@ npm run dev
 ```bash
 curl -s -X POST http://localhost:3000/api/quest/generate \
   -H 'Content-Type: application/json' \
-  -d '{"userLocation":"a park two blocks from home","previousMemories":["the elm by the library"]}'
+  -d '{"questIntention":"an old cricket ball from when I was 15"}'
 ```
 
 ```json
@@ -107,4 +106,4 @@ Set `SENTRY_DSN` to export them. Without a DSN the spans stay local and nothing 
 
 ## Why the open model is the core
 
-Gemma 2 2B runs on the laptop through Ollama. The quest and the reflection do not need a hosted LLM, and the written experience is not sent to a speech-to-text service. ElevenLabs only narrates the reflection. Swap `OLLAMA_MODEL` when you want a different open weight; the prompts and the span names stay the same.
+Gemma 2 2B runs on the laptop through Ollama and writes the reflection from the words the person typed. The quest itself is a specific invitation, so the small model cannot replace it with a bench or a tree. The written experience is not sent to a speech-to-text service. ElevenLabs narrates the quest and the reflection. Swap `OLLAMA_MODEL` when you want a different open weight for the reflection.

@@ -13,7 +13,7 @@ export function asyncHandler(
 }
 
 const generateQuestSchema = z.object({
-  userLocation: z.string().trim().min(1).max(200).optional(),
+  questIntention: z.string().trim().min(3).max(300),
   previousMemories: z.array(z.string().trim().min(1).max(500)).max(12).optional(),
 });
 

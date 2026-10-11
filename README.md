@@ -1,4 +1,4 @@
-# MemoryQuest AI
+#Little Time Machine
 
 Outdoor nostalgia quests for the Hacktoberfest Open-Source AI Challenge, Week 1 ("Touch Grass"). The screen's job is short: Gemma, running locally through Ollama, writes a two-sentence prompt that sends someone outside. They come back with a photo and a few written sentences about what they found. The same local model turns that writing into a three-sentence reflection, ElevenLabs narrates it, and MongoDB Atlas keeps the card.
 

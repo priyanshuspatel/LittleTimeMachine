@@ -1,4 +1,119 @@
-#Little Time Machine
+# Little Time Machine
+
+**Package:** `memoryquest-ai`  
+**License:** MIT  
+**Repository:** https://github.com/priyanshuspatel/LittleTimeMachine  
+
+---
+
+## 📖 About
+
+Little Time Machine is a gentle, phone‑sized walk that nudges you to rediscover a fragment of your past.  
+You name a memory — a old pen, a coin, a storybook, a playground ball, or even the spot where you grew up.  
+The app turns that into a short, outdoor task.  
+Leave the screen, find the item, snap a photo, and write a few words about how it feels.  
+Each completed walk becomes a *stamp* in your personal **Memories Library**, a quiet album that looks like the yellowed pages of an old book.
+
+> **“Step outside. The screen can wait.”**
+
+The word *screen* is purposefully emphasized – the journey is meant to live beyond the phone.
+
+---
+
+## ✨ Features
+- Simple, nostalgic UI inspired by an old library‑shelf book‑case.
+- One‑line task entry that turns a memory cue into a walk.
+- Photo capture and short text entry saved as a *stamp*.
+- Memories Library that displays stamps as small boxes, arranged like a diary.
+- Voice narration powered by ElevenLabs (optional).
+- AI‑generated hints via Ollama’s `gemma2:2b` model.
+- Error monitoring with Sentry.
+
+---
+
+## 🏗️ Architecture
+```mermaid
+flowchart LR
+    subgraph Frontend[React (Vite) – UI]
+        UI[UI Components] -->|API Calls| Server
+    end
+    subgraph Backend[Express Server]
+        Server -->|Store/Retrieve| DB[(MongoDB Atlas)]
+        Server -->|AI Hint| Ollama[[Ollama (gemma2:2b)]]
+        Server -->|Voice| Eleven[ElevenLabs]
+        Server -->|Monitoring| Sentry
+    end
+    UI -->|User Interaction| Browser
+    Browser -->|HTTPS| Server
+```
+
+---
+
+## 🚀 Getting Started
+### Prerequisites
+- **Node.js** ≥ 20
+- **Yarn** or **npm**
+- **Docker** (optional, for local MongoDB)
+- An **ElevenLabs** API key (optional for voice)
+- **Ollama** installed locally with the `gemma2:2b` model
+
+### Install
+```bash
+# Clone the repository
+git clone https://github.com/priyanshuspatel/LittleTimeMachine.git
+cd LittleTimeMachine
+
+# Install dependencies for server and client
+npm install   # installs root (Express) deps
+npm --prefix web install   # installs Vite/React deps
+```
+
+### Environment
+Create a `.env` file (do **not** commit it) with the following keys:
+```dotenv
+ELEVENLABS_API_KEY=your-elevenlabs-key
+MONGODB_URI=mongodb+srv://<user>:<password>@cluster0.mongodb.net/<db>?retryWrites=true&w=majority
+SENTRY_DSN=your-sentry-dsn
+```
+
+### Run locally
+```bash
+# Start the Express API
+npm run dev   # runs `node src/index.js`
+
+# In another terminal, start the Vite dev server
+npm --prefix web run dev
+```
+Open <http://localhost:5173> in your browser.
+
+---
+
+## 🤝 Contributing
+We welcome contributions that keep the spirit of nostalgia alive.  
+Feel free to open issues, submit pull requests, or suggest new memory‑walk ideas.  
+Please follow the usual GitHub workflow:
+1. Fork the repo
+2. Create a feature branch (`git checkout -b feat/your‑idea`)
+3. Commit your changes (`git commit -m "feat: …"`)
+4. Push and open a PR
+
+---
+
+## 📜 License
+Distributed under the MIT License. See `LICENSE` for more information.
+
+---
+
+## 🙏 Acknowledgements
+- **Ollama** – for the `gemma2:2b` language model that powers subtle hints.
+- **ElevenLabs** – for optional voice narration.
+- **MongoDB Atlas** – for the cloud database that stores your stamps.
+- **Sentry** – for error monitoring.
+- **Hacktoberfest 2026 Open‑Source AI Challenge – Week 1 “Touch Grass.”**
+
+---
+
+*This repository is managed with love for memories, not for startups.*
 
 Outdoor nostalgia quests for the Hacktoberfest Open-Source AI Challenge, Week 1 ("Touch Grass"). Each walk offers one specific invitation: a childhood toy, a sports belonging, a book, a playing ground, a route, or a place where the person used to spend time with someone. They come back with a photo and a few written sentences. Gemma, running locally through Ollama, turns that writing into a three-sentence reflection, ElevenLabs narrates it, and MongoDB Atlas keeps the card.
 

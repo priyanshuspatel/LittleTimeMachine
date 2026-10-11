@@ -34,12 +34,12 @@ The word *screen* is purposefully emphasized – the journey is meant to live be
 ## 🏗️ Architecture
 ```mermaid
 flowchart LR
-    subgraph Frontend[React (Vite) – UI]
+    subgraph Frontend["React (Vite) - UI"]
         UI[UI Components] -->|API Calls| Server
     end
-    subgraph Backend[Express Server]
+    subgraph Backend["Express Server"]
         Server -->|Store/Retrieve| DB[(MongoDB Atlas)]
-        Server -->|AI Hint| Ollama[[Ollama (gemma2:2b)]]
+        Server -->|AI Hint| Ollama["Ollama gemma2:2b"]
         Server -->|Voice| Eleven[ElevenLabs]
         Server -->|Monitoring| Sentry
     end

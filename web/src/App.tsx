@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { formatCoordinates } from "../../src/domain/coordinates";
+import { estimateNarrationSeconds } from "../../src/domain/narration";
+import { speakEntireText, type NarrationSession } from "./deviceSpeech";
 import {
   checkBackendHealth,
   generateQuest,
@@ -18,20 +21,37 @@ interface WalkMemory extends MemoryCard {
 
 const STORAGE_KEY = "memoryquest.walks";
 
+function revokeBlob(url: string | null | undefined): void {
+  if (url?.startsWith("blob:")) {
+    URL.revokeObjectURL(url);
+  }
+}
+
 function loadWalks(): WalkMemory[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as WalkMemory[];
-    return parsed.map((entry) => ({ ...entry, voiceUrl: null }));
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((entry) => typeof entry?.photoUrl === "string" && !entry.photoUrl.startsWith("blob:"))
+      .map((entry) => ({
+        ...entry,
+        voiceUrl: null,
+        reflectionAudioUrl: entry.reflectionAudioUrl?.startsWith("blob:") ? "" : entry.reflectionAudioUrl,
+      }));
   } catch {
     return [];
   }
 }
 
 function persistWalks(walks: WalkMemory[]): void {
-  const stored = walks.map((entry) => ({ ...entry, voiceUrl: null }));
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+  try {
+    const stored = walks.map((entry) => ({ ...entry, voiceUrl: null }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+  } catch {
+    // Private mode and a full disk both reject the write. The session list still updates.
+  }
 }
 
 function locate(): Promise<string | null> {
@@ -41,8 +61,11 @@ function locate(): Promise<string | null> {
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const { latitude, longitude } = position.coords;
-        resolve(`${latitude.toFixed(3)}°N, ${longitude.toFixed(3)}°W`);
+        try {
+          resolve(formatCoordinates(position.coords.latitude, position.coords.longitude));
+        } catch {
+          resolve(null);
+        }
       },
       () => resolve(null),
       { enableHighAccuracy: false, timeout: 6000, maximumAge: 60_000 },
@@ -72,15 +95,13 @@ export function App() {
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [walks, setWalks] = useState<WalkMemory[]>(() => loadWalks());
+  const requestLock = useRef(false);
 
   useEffect(() => {
     let active = true;
     checkBackendHealth().then((isOnline) => {
       if (active) {
         setBackendOnline(isOnline);
-        if (!isOnline) {
-          setDemoMode(true);
-        }
       }
     });
     return () => {
@@ -100,7 +121,11 @@ export function App() {
 
   function remember(entry: WalkMemory): void {
     setWalks((current) => {
-      const next = [entry, ...current];
+      const combined = [entry, ...current];
+      const next = combined.slice(0, 200);
+      for (const dropped of combined.slice(200)) {
+        revokeBlob(dropped.voiceUrl);
+      }
       persistWalks(next);
       return next;
     });
@@ -108,6 +133,8 @@ export function App() {
 
   function removeWalk(id: string): void {
     setWalks((current) => {
+      const removed = current.find((item) => item.id === id);
+      revokeBlob(removed?.voiceUrl);
       const next = current.filter((item) => item.id !== id);
       persistWalks(next);
       return next;
@@ -115,15 +142,28 @@ export function App() {
   }
 
   async function startWalk(): Promise<void> {
+    if (requestLock.current) {
+      return;
+    }
+    requestLock.current = true;
     setError(null);
     setScreen("saving");
+    revokeBlob(questAudio);
     try {
       const previousMemories = walks.slice(0, 3).map((w) => w.experienceText);
-      const quest = await generateQuest({
+      const request = {
         userLocation: locationHint.trim() || undefined,
         previousMemories,
-        forceDemo: demoMode || !backendOnline,
-      });
+      };
+      let quest;
+      try {
+        quest = await generateQuest({ ...request, forceDemo: demoMode });
+      } catch (cause) {
+        if (demoMode) {
+          throw cause;
+        }
+        quest = await generateQuest({ ...request, forceDemo: true });
+      }
       setQuestText(quest.questText);
       setQuestAudio(quest.audioUrl ? sameOriginMedia(quest.audioUrl) : "");
       setScreen("walk");
@@ -135,6 +175,8 @@ export function App() {
           : msg,
       );
       setScreen("home");
+    } finally {
+      requestLock.current = false;
     }
   }
 
@@ -147,30 +189,39 @@ export function App() {
   }
 
   function handlePhotoCaptured(file: File): void {
+    setError(null);
     setPhoto(file);
     setScreen("reflect");
   }
 
   async function finishReflection(experienceText: string, voice: Blob | null): Promise<void> {
+    if (requestLock.current) {
+      return;
+    }
     if (!photo) {
       setError("Please capture a keepsake photograph first.");
       setScreen("camera");
       return;
     }
+    requestLock.current = true;
     setError(null);
     setScreen("saving");
     try {
-      const card = await processMemory({
-        photo,
-        questText,
-        experienceText,
-        forceDemo: demoMode || !backendOnline,
-      });
+      const request = { photo, questText, experienceText };
+      let card;
+      try {
+        card = await processMemory({ ...request, forceDemo: demoMode });
+      } catch (cause) {
+        if (demoMode) {
+          throw cause;
+        }
+        card = await processMemory({ ...request, forceDemo: true });
+      }
       remember({
         ...card,
         photoUrl: sameOriginMedia(card.photoUrl),
         reflectionAudioUrl: card.reflectionAudioUrl ? sameOriginMedia(card.reflectionAudioUrl) : "",
-        id: card.timestamp || new Date().toISOString(),
+        id: crypto.randomUUID(),
         locationLabel: locationLabel || locationHint || "Secret Spot",
         title: locationHint.trim() || "A kept thing",
         voiceUrl: voice ? URL.createObjectURL(voice) : null,
@@ -180,6 +231,8 @@ export function App() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not bind the memory into the archive");
       setScreen("reflect");
+    } finally {
+      requestLock.current = false;
     }
   }
 
@@ -483,10 +536,13 @@ function WalkScreen({
   onCancel: () => void;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const speechRef = useRef<NarrationSession | null>(null);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+  const [spokenSeconds, setSpokenSeconds] = useState(0);
   const [outdoorSeconds, setOutdoorSeconds] = useState(0);
+  const estimatedSeconds = estimateNarrationSeconds(questText);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -501,7 +557,48 @@ function WalkScreen({
     audio.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
   }, [audioUrl]);
 
+  useEffect(() => {
+    if (audioUrl) {
+      return;
+    }
+    setSpokenSeconds(0);
+    setPlaying(true);
+    const session = speakEntireText(questText, {
+      onend: () => {
+        setPlaying(false);
+        setSpokenSeconds(estimateNarrationSeconds(questText));
+      },
+      onerror: () => setPlaying(false),
+    });
+    speechRef.current = session;
+    const clock = window.setInterval(() => {
+      if (speechRef.current?.isActive()) {
+        setSpokenSeconds((seconds) => Math.min(estimateNarrationSeconds(questText), seconds + 1));
+      }
+    }, 1000);
+    return () => {
+      window.clearInterval(clock);
+      session.stop();
+      speechRef.current = null;
+    };
+  }, [audioUrl, questText]);
+
   function togglePlay(): void {
+    const speech = speechRef.current;
+    if (!audioUrl && speech) {
+      if (speech.isActive()) {
+        speech.pause();
+        setPlaying(false);
+        return;
+      }
+      const restarting = !speech.isPaused();
+      speech.resume();
+      if (restarting) {
+        setSpokenSeconds(0);
+      }
+      setPlaying(true);
+      return;
+    }
     const audio = audioRef.current;
     if (!audio) return;
     if (audio.paused) {
@@ -511,6 +608,9 @@ function WalkScreen({
       setPlaying(false);
     }
   }
+
+  const shownTime = audioUrl ? currentTime : spokenSeconds;
+  const shownDuration = audioUrl ? duration : estimatedSeconds;
 
   return (
     <section className="flex flex-1 flex-col justify-between gap-6 py-2">
@@ -578,7 +678,9 @@ function WalkScreen({
               <p className="font-serif text-base font-bold text-[#faedd4]">
                 {playing ? "Listening to Narration..." : "Spoken Narration"}
               </p>
-              <p className="text-xs font-sans text-[#c8b79b]">Spoken through ElevenLabs Audio</p>
+              <p className="text-xs font-sans text-[#c8b79b]">
+                {audioUrl ? "Spoken through ElevenLabs Audio" : "Reading the whole quest aloud"}
+              </p>
             </div>
           </div>
 
@@ -612,16 +714,16 @@ function WalkScreen({
           />
         )}
 
-        {duration > 0 && (
+        {shownDuration > 0 && (
           <div className="flex items-center gap-3 text-xs font-sans text-[#b8a287]">
-            <span>{formatTime(Math.floor(currentTime))}</span>
+            <span>{formatTime(Math.floor(shownTime))}</span>
             <div className="relative flex-1 h-1.5 rounded-full bg-[#180e08] overflow-hidden border border-[#442c1d]">
               <div
                 className="h-full bg-gradient-to-r from-[#ad863c] to-[#d4af37] rounded-full transition-all"
-                style={{ width: `${(currentTime / duration) * 100}%` }}
+                style={{ width: `${Math.min(100, (shownTime / shownDuration) * 100)}%` }}
               />
             </div>
-            <span>{formatTime(Math.floor(duration))}</span>
+            <span>{formatTime(Math.floor(shownDuration))}</span>
           </div>
         )}
       </div>
@@ -843,7 +945,7 @@ function CameraScreen({
         <input
           ref={fileRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp"
+          accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"
           capture="environment"
           className="hidden"
           onChange={(event) => {
@@ -880,6 +982,23 @@ function ReflectScreen({
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+
+  useEffect(() => {
+    return () => {
+      const recorder = recorderRef.current;
+      if (!recorder || recorder.state === "inactive") {
+        return;
+      }
+      recorder.onstop = () => {
+        recorder.stream.getTracks().forEach((track) => track.stop());
+      };
+      try {
+        recorder.stop();
+      } catch {
+        recorder.stream.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
 
   const CHILDHOOD_CUES = [
     "Damp soil & pine needles 🌲",
@@ -1346,9 +1465,14 @@ function MemoryDetailModal({
   const [copied, setCopied] = useState(false);
 
   function copyText(): void {
-    void navigator.clipboard.writeText(`${walk.experienceText}\n\nReflection: ${walk.reflectionText}`);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    const passage = `${walk.experienceText}\n\nReflection: ${walk.reflectionText}`;
+    void navigator.clipboard.writeText(passage).then(
+      () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 2000);
+      },
+      () => setCopied(false),
+    );
   }
 
   return (
@@ -1423,8 +1547,13 @@ function MemoryDetailModal({
 
           {/* Audio */}
           <div className="flex flex-wrap gap-2.5">
-            {walk.reflectionAudioUrl && (
-              <AudioPlayerChip label="Gemma Reflection" src={walk.reflectionAudioUrl} icon="✨" />
+            {walk.reflectionText && (
+              <AudioPlayerChip
+                label={walk.reflectionAudioUrl ? "Gemma Reflection" : "Read the reflection"}
+                src={walk.reflectionAudioUrl}
+                icon="✨"
+                transcript={walk.reflectionText}
+              />
             )}
             {walk.voiceUrl && (
               <AudioPlayerChip label="Spoken Note" src={walk.voiceUrl} icon="🎙" />
@@ -1457,11 +1586,44 @@ function MemoryDetailModal({
 
 // MemoryCardItem is now replaced by FilledDiarySlot + MemoryDetailModal above.
 
-function AudioPlayerChip({ label, src, icon }: { label: string; src: string; icon: string }) {
+function AudioPlayerChip({
+  label,
+  src,
+  icon,
+  transcript,
+}: {
+  label: string;
+  src: string;
+  icon: string;
+  transcript?: string;
+}) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const speechRef = useRef<NarrationSession | null>(null);
   const [playing, setPlaying] = useState(false);
 
+  useEffect(() => () => speechRef.current?.stop(), []);
+
   function toggle(): void {
+    if (!src && transcript) {
+      const speech = speechRef.current;
+      if (speech?.isActive()) {
+        speech.pause();
+        setPlaying(false);
+        return;
+      }
+      if (speech?.isPaused()) {
+        speech.resume();
+        setPlaying(true);
+        return;
+      }
+      speech?.stop();
+      speechRef.current = speakEntireText(transcript, {
+        onend: () => setPlaying(false),
+        onerror: () => setPlaying(false),
+      });
+      setPlaying(true);
+      return;
+    }
     const audio = audioRef.current;
     if (!audio) return;
     if (audio.paused) {
@@ -1484,13 +1646,15 @@ function AudioPlayerChip({ label, src, icon }: { label: string; src: string; ico
     >
       <span>{icon}</span>
       <span>{playing ? "Pause" : "Play"} {label}</span>
-      <audio
-        ref={audioRef}
-        src={src}
-        preload="none"
-        onEnded={() => setPlaying(false)}
-        onPause={() => setPlaying(false)}
-      />
+      {src ? (
+        <audio
+          ref={audioRef}
+          src={src}
+          preload="none"
+          onEnded={() => setPlaying(false)}
+          onPause={() => setPlaying(false)}
+        />
+      ) : null}
     </button>
   );
 }

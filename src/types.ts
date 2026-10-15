@@ -28,6 +28,7 @@ export interface ErrorResponse {
 }
 
 export interface MemoryRecord {
+  /** Relative `/media` path such as `photos/<uuid>.jpg`, never a client filename. */
   photoPath: string;
   photoUrl: string;
   questText: string;

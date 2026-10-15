@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { z } from "zod";
+import { isPublicMediaPath } from "./security/mediaPath";
 
 const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
@@ -16,6 +17,8 @@ const envSchema = z.object({
   SENTRY_DSN: z.string().optional().default(""),
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(1),
   UPLOAD_DIR: z.string().min(1).default("uploads"),
+  HOST: z.string().min(1).default("127.0.0.1"),
+  RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().max(10_000).default(30),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -42,9 +45,21 @@ export const config = {
   sentryDsn: parsed.data.SENTRY_DSN,
   sentryTracesSampleRate: parsed.data.SENTRY_TRACES_SAMPLE_RATE,
   uploadDir: parsed.data.UPLOAD_DIR,
+  host: parsed.data.HOST,
+  rateLimitPerMinute: parsed.data.RATE_LIMIT_PER_MINUTE,
 };
 
+/**
+ * Publishes a media path this server generated.
+ *
+ * @param relativePath - A `photos/...` or `tts/...` path from our own writers.
+ * @returns An absolute URL under `/media`.
+ * @throws {Error} When the path is not one of those generated names.
+ */
 export function mediaUrl(relativePath: string): string {
-  const cleaned = relativePath.replace(/^\/+/, "");
+  const cleaned = relativePath.replace(/^\/+/, "").replace(/\\/g, "/");
+  if (!isPublicMediaPath(`/${cleaned}`)) {
+    throw new Error("Refusing to publish an unsafe media path");
+  }
   return `${config.publicBaseUrl}/media/${cleaned}`;
 }

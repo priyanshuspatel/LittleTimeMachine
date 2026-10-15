@@ -1,33 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { unlink } from "node:fs/promises";
-import path from "node:path";
 import { Router } from "express";
 import multer from "multer";
-import { config, mediaUrl } from "../config";
 import { AppError } from "../errors";
-import { assertPhoto, asyncHandler, experienceTextSchema, questTextSchema } from "../http";
-import { traced } from "../sentry";
-import { synthesizeSpeech } from "../services/elevenlabs";
-import { saveMemory } from "../services/memoryRepository";
-import { generateReflectionText } from "../services/ollama";
-import { photoDir, ttsDir } from "../storage";
-import type { MemoryCard, MemoryRecord, ProcessMemoryResponse } from "../types";
+import { asyncHandler, experienceTextSchema, questTextSchema } from "../http";
+import type { AppDependencies } from "../ports";
+import { runMemoryPipeline } from "../pipelines/memoryPipeline";
+import { acceptUploadedPhoto } from "../services/photoUpload";
+import { photoDir } from "../storage";
+import type { ProcessMemoryResponse } from "../types";
 
-const upload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, callback) => {
-      callback(null, photoDir());
-    },
-    filename: (_req, file, callback) => {
-      const extension = path.extname(file.originalname).toLowerCase() || extensionFor(file.mimetype);
-      callback(null, `${randomUUID()}${extension}`);
-    },
-  }),
-  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
-});
-
-function extensionFor(mime: string): string {
-  return mime === "image/png" ? ".png" : ".jpg";
+function extensionIgnoredName(): string {
+  return `${randomUUID()}.upload`;
 }
 
 async function removeQuietly(filePath: string | undefined): Promise<void> {
@@ -50,98 +34,61 @@ function requiredText(
   return parsed.data;
 }
 
-export const memoryRouter = Router();
+/**
+ * Memory routes bound to the supplied collaborators.
+ *
+ * @param deps - Model, narrator, database, clock, and id factory.
+ */
+export function createMemoryRouter(deps: AppDependencies): Router {
+  const upload = multer({
+    storage: multer.diskStorage({
+      destination: (_req, _file, callback) => {
+        callback(null, photoDir());
+      },
+      filename: (_req, _file, callback) => {
+        callback(null, extensionIgnoredName());
+      },
+    }),
+    limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 8, fieldSize: 32 * 1024 },
+  });
 
-memoryRouter.post(
-  "/process",
-  upload.single("photo"),
-  asyncHandler(async (req, res) => {
-    const uploadedPhoto = req.file;
+  const router = Router();
+  router.post(
+    "/process",
+    upload.single("photo"),
+    asyncHandler(async (req, res) => {
+      const uploadedPhoto = req.file;
+      let storedPath: string | undefined;
+      try {
+        if (!uploadedPhoto) {
+          throw new AppError(400, "PHOTO_REQUIRED", "A JPEG, PNG, or WebP photo is required");
+        }
+        const questText = requiredText(
+          req.body?.questText,
+          questTextSchema,
+          "QUEST_TEXT_REQUIRED",
+          "questText is required",
+        );
+        const experienceText = requiredText(
+          req.body?.experienceText,
+          experienceTextSchema,
+          "EXPERIENCE_REQUIRED",
+          "Describe your experience in 1 to 2000 characters",
+        );
+        const photo = await acceptUploadedPhoto(uploadedPhoto, deps.createId);
+        storedPath = photo.absolutePath;
+        const memoryCard = await runMemoryPipeline(deps, { photo, questText, experienceText });
+        const body: ProcessMemoryResponse = { success: true, memoryCard };
+        res.status(201).json(body);
+      } catch (error) {
+        await removeQuietly(uploadedPhoto?.path);
+        if (storedPath && storedPath !== uploadedPhoto?.path) {
+          await removeQuietly(storedPath);
+        }
+        throw error;
+      }
+    }),
+  );
 
-    try {
-      const photo = assertPhoto(uploadedPhoto);
-      const questText = requiredText(
-        req.body?.questText,
-        questTextSchema,
-        "QUEST_TEXT_REQUIRED",
-        "questText is required",
-      );
-      const experienceText = requiredText(
-        req.body?.experienceText,
-        experienceTextSchema,
-        "EXPERIENCE_REQUIRED",
-        "Describe your experience in 1 to 2000 characters",
-      );
-
-      const memoryCard = await traced(
-        "memory.process",
-        "memory.pipeline",
-        { "memoryquest.stage": "memory" },
-        async () => {
-          const reflection = await traced(
-            "llm.gemma",
-            "gen_ai.request",
-            {
-              "gen_ai.system": "ollama",
-              "gen_ai.request.model": config.ollamaModel,
-              "gen_ai.operation": "reflection",
-            },
-            async (span) => {
-              const generated = await generateReflectionText({ questText, experienceText });
-              span.setAttribute("gen_ai.usage.input_tokens", generated.promptTokens);
-              span.setAttribute("gen_ai.usage.output_tokens", generated.completionTokens);
-              span.setAttribute("gen_ai.total_duration_ns", generated.totalDurationNs);
-              span.setAttribute("experience.chars", experienceText.length);
-              return generated;
-            },
-          );
-
-          const speech = await traced(
-            "tts.elevenlabs",
-            "gen_ai.tts",
-            { "gen_ai.system": "elevenlabs", "gen_ai.operation": "reflection" },
-            async (span) => {
-              const audio = await synthesizeSpeech(reflection.text, ttsDir());
-              span.setAttribute("tts.cache_hit", audio.cacheHit);
-              span.setAttribute("tts.bytes", audio.bytes);
-              return audio;
-            },
-          );
-
-          const createdAt = new Date();
-          const photoRelative = path.posix.join("photos", path.basename(photo.path));
-
-          const record: MemoryRecord = {
-            photoPath: photo.path,
-            photoUrl: mediaUrl(photoRelative),
-            questText,
-            experienceText,
-            reflectionText: reflection.text,
-            reflectionAudioPath: speech.relativePath,
-            reflectionAudioUrl: speech.audioUrl,
-            createdAt,
-          };
-
-          await traced("db.mongodb", "db.insert", { "db.system": "mongodb" }, async () => {
-            await saveMemory(record);
-          });
-
-          const card: MemoryCard = {
-            photoUrl: record.photoUrl,
-            experienceText: record.experienceText,
-            reflectionText: record.reflectionText,
-            reflectionAudioUrl: record.reflectionAudioUrl,
-            timestamp: createdAt.toISOString(),
-          };
-          return card;
-        },
-      );
-
-      const body: ProcessMemoryResponse = { success: true, memoryCard };
-      res.status(201).json(body);
-    } catch (error) {
-      await removeQuietly(uploadedPhoto?.path);
-      throw error;
-    }
-  }),
-);
+  return router;
+}

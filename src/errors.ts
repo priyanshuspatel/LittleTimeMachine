@@ -1,3 +1,7 @@
+/**
+ * An error the HTTP layer knows how to answer.
+ * Set `expose` to false when `message` must stay in the server log only.
+ */
 export class AppError extends Error {
   readonly status: number;
   readonly code: string;

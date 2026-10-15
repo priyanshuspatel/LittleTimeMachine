@@ -1,29 +1,28 @@
-import { createHash } from "node:crypto";
-import { access, writeFile } from "node:fs/promises";
-import path from "node:path";
-import { config, mediaUrl } from "../config";
+import { config } from "../config";
 import { AppError } from "../errors";
+import { FileCachedSpeechSynthesizer } from "./speechCache";
 
-export interface SpeechResult {
-  relativePath: string;
-  audioUrl: string;
-  cacheHit: boolean;
-  bytes: number;
+export interface ElevenLabsSettings {
+  apiKey: string;
+  voiceId: string;
+  modelId: string;
+  timeoutMs: number;
+  directory: string;
+  fetchImpl?: typeof fetch;
 }
 
-function cacheName(text: string): string {
-  const hash = createHash("sha256")
-    .update(`${config.elevenLabsVoiceId}\n${config.elevenLabsModelId}\n${text}`)
-    .digest("hex");
-  return `${hash}.mp3`;
+interface ElevenLabsErrorBody {
+  detail?: { message?: string } | string | Array<{ msg?: string }>;
 }
 
-async function elevenLabsError(response: Response): Promise<string> {
+function isAbort(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+async function elevenLabsDetail(response: Response): Promise<string> {
   const raw = await response.text();
   try {
-    const parsed = JSON.parse(raw) as {
-      detail?: { message?: string } | string | Array<{ msg?: string }>;
-    };
+    const parsed = JSON.parse(raw) as ElevenLabsErrorBody;
     if (typeof parsed.detail === "string") {
       return parsed.detail;
     }
@@ -34,84 +33,88 @@ async function elevenLabsError(response: Response): Promise<string> {
       return parsed.detail.message;
     }
   } catch {
-    // Fall through to the raw body.
+    // The body was not JSON. The slice below is for the server log only.
   }
   return raw.slice(0, 400) || response.statusText;
 }
 
-export async function synthesizeSpeech(text: string, directory: string): Promise<SpeechResult> {
-  const filename = cacheName(text);
-  const absolutePath = path.join(directory, filename);
-  const relativePath = `tts/${filename}`;
+/**
+ * ElevenLabs text-to-speech with a file cache keyed by voice, model, and text.
+ */
+export class ElevenLabsSpeechSynthesizer extends FileCachedSpeechSynthesizer {
+  private readonly fetchImpl: typeof fetch;
 
-  try {
-    await access(absolutePath);
-    return {
-      relativePath,
-      audioUrl: mediaUrl(relativePath),
-      cacheHit: true,
-      bytes: 0,
-    };
-  } catch {
-    // Cache miss. Synthesize below.
+  /**
+   * @param settings - API key, voice, model, timeout, cache directory, and optional fetch.
+   */
+  constructor(private readonly settings: ElevenLabsSettings) {
+    super(settings.directory);
+    this.fetchImpl = settings.fetchImpl ?? fetch;
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), config.elevenLabsTimeoutMs);
+  protected cacheIdentity(text: string): string {
+    return `${this.settings.voiceId}\n${this.settings.modelId}\n${text}`;
+  }
 
-  let response: Response;
-  try {
-    response = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(config.elevenLabsVoiceId)}?output_format=mp3_44100_128`,
-      {
-        method: "POST",
-        headers: {
-          "xi-api-key": config.elevenLabsApiKey,
-          "Content-Type": "application/json",
-          Accept: "audio/mpeg",
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          text,
-          model_id: config.elevenLabsModelId,
-          voice_settings: {
-            stability: 0.45,
-            similarity_boost: 0.75,
-            style: 0,
-            use_speaker_boost: true,
+  protected async render(text: string): Promise<Buffer> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.settings.timeoutMs);
+    let response: Response;
+    try {
+      response = await this.fetchImpl(
+        `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(this.settings.voiceId)}?output_format=mp3_44100_128`,
+        {
+          method: "POST",
+          headers: {
+            "xi-api-key": this.settings.apiKey,
+            "Content-Type": "application/json",
+            Accept: "audio/mpeg",
           },
-        }),
-      },
-    );
-  } catch (error) {
-    const aborted = error instanceof Error && error.name === "AbortError";
-    throw new AppError(
-      502,
-      "ELEVENLABS_UNAVAILABLE",
-      aborted
-        ? `ElevenLabs timed out after ${config.elevenLabsTimeoutMs}ms`
-        : "Could not reach the ElevenLabs API",
-    );
-  } finally {
-    clearTimeout(timer);
+          signal: controller.signal,
+          body: JSON.stringify({
+            text,
+            model_id: this.settings.modelId,
+            voice_settings: {
+              stability: 0.45,
+              similarity_boost: 0.75,
+              style: 0,
+              use_speaker_boost: true,
+            },
+          }),
+        },
+      );
+    } catch (error) {
+      const aborted = isAbort(error);
+      throw new AppError(
+        502,
+        "ELEVENLABS_UNAVAILABLE",
+        aborted
+          ? `Speech synthesis timed out after ${this.settings.timeoutMs}ms`
+          : "Could not reach the speech service",
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (!response.ok) {
+      const detail = await elevenLabsDetail(response);
+      console.error(`ElevenLabs returned ${response.status}: ${detail}`);
+      throw new AppError(502, "ELEVENLABS_ERROR", "Speech synthesis failed");
+    }
+
+    return Buffer.from(await response.arrayBuffer());
   }
+}
 
-  if (!response.ok) {
-    const detail = await elevenLabsError(response);
-    throw new AppError(502, "ELEVENLABS_ERROR", `ElevenLabs returned ${response.status}: ${detail}`);
-  }
-
-  const audio = Buffer.from(await response.arrayBuffer());
-  if (audio.length < 128) {
-    throw new AppError(502, "ELEVENLABS_EMPTY", "ElevenLabs returned an empty audio file");
-  }
-
-  await writeFile(absolutePath, audio);
-
-  return {
-    relativePath,
-    audioUrl: mediaUrl(relativePath),
-    cacheHit: false,
-    bytes: audio.length,
-  };
+/**
+ * Production narrator. The cache directory is the TTS upload folder.
+ */
+export function createDefaultSpeechSynthesizer(directory: string): ElevenLabsSpeechSynthesizer {
+  return new ElevenLabsSpeechSynthesizer({
+    apiKey: config.elevenLabsApiKey,
+    voiceId: config.elevenLabsVoiceId,
+    modelId: config.elevenLabsModelId,
+    timeoutMs: config.elevenLabsTimeoutMs,
+    directory,
+  });
 }

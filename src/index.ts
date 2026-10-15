@@ -9,15 +9,27 @@ async function main(): Promise<void> {
   await connectMongo();
 
   const app = createApp();
-  const server = app.listen(config.port, () => {
-    console.log(`MemoryQuest AI listening on ${config.publicBaseUrl}`);
+  const server = app.listen(config.port, config.host, () => {
+    console.log(`MemoryQuest AI listening on ${config.host}:${config.port}`);
   });
 
-  const shutdown = async (signal: string) => {
+  let closing = false;
+  const shutdown = async (signal: string): Promise<void> => {
+    if (closing) {
+      return;
+    }
+    closing = true;
     console.log(`Received ${signal}, closing`);
-    server.close();
+    const force = setTimeout(() => {
+      process.exit(1);
+    }, 10_000);
+    force.unref();
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
     await closeMongo();
     await Sentry.close(2000);
+    clearTimeout(force);
     process.exit(0);
   };
 

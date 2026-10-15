@@ -1,3 +1,7 @@
+import { sameOriginMedia } from "../../src/domain/sameOriginMedia";
+
+export { sameOriginMedia };
+
 export interface QuestResponse {
   questText: string;
   audioUrl: string;
@@ -15,15 +19,6 @@ interface ErrorBody {
   success: false;
   error: string;
   code: string;
-}
-
-export function sameOriginMedia(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return `${parsed.pathname}${parsed.search}`;
-  } catch {
-    return url;
-  }
 }
 
 async function readError(response: Response): Promise<string> {
@@ -58,7 +53,7 @@ export async function generateQuest(options?: {
 
   if (options?.forceDemo) {
     await new Promise((resolve) => setTimeout(resolve, 800));
-    return { questText: fromTheirWords, audioUrl: createCalmAudioTone() };
+    return { questText: fromTheirWords, audioUrl: "" };
   }
 
   const response = await fetch("/api/quest/generate", {
@@ -76,77 +71,6 @@ export async function generateQuest(options?: {
   return (await response.json()) as QuestResponse;
 }
 
-function createCalmAudioTone(): string {
-  try {
-    const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-    const duration = 2.5;
-    const sampleRate = ctx.sampleRate;
-    const frameCount = sampleRate * duration;
-    const buffer = ctx.createBuffer(1, frameCount, sampleRate);
-    const data = buffer.getChannelData(0);
-
-    for (let i = 0; i < frameCount; i++) {
-      const t = i / sampleRate;
-      // Soft gentle pentatonic chords
-      const envelope = Math.sin((Math.PI * t) / duration) ** 2;
-      const wave = Math.sin(2 * Math.PI * 261.63 * t) * 0.4 +
-                   Math.sin(2 * Math.PI * 329.63 * t) * 0.3 +
-                   Math.sin(2 * Math.PI * 392.00 * t) * 0.2;
-      data[i] = wave * envelope * 0.2;
-    }
-
-    // Convert audio buffer to WAV blob URL
-    const wavBlob = audioBufferToWav(buffer);
-    return URL.createObjectURL(wavBlob);
-  } catch {
-    return "";
-  }
-}
-
-function audioBufferToWav(buffer: AudioBuffer): Blob {
-  const numChannels = 1;
-  const sampleRate = buffer.sampleRate;
-  const format = 1; // PCM
-  const bitDepth = 16;
-  const bytesPerSample = bitDepth / 8;
-  const blockAlign = numChannels * bytesPerSample;
-  const data = buffer.getChannelData(0);
-  const dataSize = data.length * bytesPerSample;
-  const headerSize = 44;
-  const totalSize = headerSize + dataSize;
-  const arrayBuffer = new ArrayBuffer(totalSize);
-  const view = new DataView(arrayBuffer);
-
-  const writeString = (offset: number, str: string) => {
-    for (let i = 0; i < str.length; i++) {
-      view.setUint8(offset + i, str.charCodeAt(i));
-    }
-  };
-
-  writeString(0, "RIFF");
-  view.setUint32(4, 36 + dataSize, true);
-  writeString(8, "WAVE");
-  writeString(12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, format, true);
-  view.setUint16(22, numChannels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * blockAlign, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, bitDepth, true);
-  writeString(36, "data");
-  view.setUint32(40, dataSize, true);
-
-  let offset = 44;
-  for (let i = 0; i < data.length; i++) {
-    const s = Math.max(-1, Math.min(1, data[i]));
-    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-    offset += 2;
-  }
-
-  return new Blob([view], { type: "audio/wav" });
-}
-
 export async function processMemory(input: {
   photo: File;
   questText: string;
@@ -160,13 +84,13 @@ export async function processMemory(input: {
       photoUrl,
       experienceText: input.experienceText,
       reflectionText: `Under the open sky, you paused long enough to genuinely witness this corner of the world. What felt ordinary transformed into a lasting anchor against the rush of the digital day. This moment is now safely kept in your living archives.`,
-      reflectionAudioUrl: createCalmAudioTone(),
+      reflectionAudioUrl: "",
       timestamp: new Date().toISOString(),
     };
   }
 
   const body = new FormData();
-  body.append("photo", input.photo);
+  body.append("photo", await normalizePhotoForUpload(input.photo));
   body.append("questText", input.questText);
   body.append("experienceText", input.experienceText);
 
@@ -176,4 +100,53 @@ export async function processMemory(input: {
   }
   const payload = (await response.json()) as { success: true; memoryCard: MemoryCard };
   return payload.memoryCard;
+}
+
+/**
+ * Redraws a photo the browser can already display into a complete baseline JPEG.
+ * Phone pictures are often progressive, HEIC, or rotated only in EXIF. The seal
+ * step stores the pixels, and the server drops EXIF, so the orientation has to be
+ * baked in here. If the browser cannot decode the file, the original is sent on.
+ */
+function normalizePhotoForUpload(file: File): Promise<File> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      const longest = Math.max(image.naturalWidth, image.naturalHeight);
+      if (!longest) {
+        resolve(file);
+        return;
+      }
+      const scale = Math.min(1, 2560 / longest);
+      const width = Math.max(1, Math.round(image.naturalWidth * scale));
+      const height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        resolve(file);
+        return;
+      }
+      context.drawImage(image, 0, 0, width, height);
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            resolve(file);
+            return;
+          }
+          resolve(new File([blob], "keepsake.jpg", { type: "image/jpeg" }));
+        },
+        "image/jpeg",
+        0.9,
+      );
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(file);
+    };
+    image.src = url;
+  });
 }

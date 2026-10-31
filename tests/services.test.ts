@@ -46,12 +46,12 @@ describe("OllamaTextGenerator", () => {
   it("returns trimmed usage from a successful body", async () => {
     const generator = new OllamaTextGenerator({
       baseUrl: "http://127.0.0.1:9",
-      model: "gemma2:2b",
+      model: "gemma4:e4b",
       timeoutMs: 1000,
       fetchImpl: async () =>
         new Response(
           JSON.stringify({
-            model: "gemma2:2b",
+            model: "gemma4:e4b",
             response: "  hello there. ",
             done: true,
             prompt_eval_count: 3,
@@ -66,13 +66,13 @@ describe("OllamaTextGenerator", () => {
     assert.equal(usage.promptTokens, 3);
     assert.equal(usage.completionTokens, 4);
     assert.equal(usage.totalDurationNs, 9);
-    assert.equal(usage.model, "gemma2:2b");
+    assert.equal(usage.model, "gemma4:e4b");
   });
 
   it("hides the upstream body when Ollama returns an error", async () => {
     const generator = new OllamaTextGenerator({
       baseUrl: "http://127.0.0.1:9",
-      model: "gemma2:2b",
+      model: "gemma4:e4b",
       timeoutMs: 1000,
       fetchImpl: async () => new Response("secret-stack-trace model path /Users/private", { status: 500 }),
     });
@@ -91,7 +91,7 @@ describe("OllamaTextGenerator", () => {
   it("reports a timeout without the transport error text", async () => {
     const generator = new OllamaTextGenerator({
       baseUrl: "http://127.0.0.1:9",
-      model: "gemma2:2b",
+      model: "gemma4:e4b",
       timeoutMs: 20,
       fetchImpl: (_url, init) =>
         new Promise((_resolve, reject) => {
@@ -117,7 +117,7 @@ describe("OllamaTextGenerator", () => {
   it("reports an unreachable model separately from a timeout", async () => {
     const generator = new OllamaTextGenerator({
       baseUrl: "http://127.0.0.1:9",
-      model: "gemma2:2b",
+      model: "gemma4:e4b",
       timeoutMs: 1000,
       fetchImpl: async () => {
         throw new Error("connect ECONNREFUSED");
@@ -137,7 +137,7 @@ describe("OllamaTextGenerator", () => {
   it("rejects an empty completion and unreadable JSON", async () => {
     const empty = new OllamaTextGenerator({
       baseUrl: "http://127.0.0.1:9",
-      model: "gemma2:2b",
+      model: "gemma4:e4b",
       timeoutMs: 1000,
       fetchImpl: async () => new Response(JSON.stringify({ response: "   ", done: true }), { status: 200 }),
     });
@@ -149,7 +149,7 @@ describe("OllamaTextGenerator", () => {
 
     const broken = new OllamaTextGenerator({
       baseUrl: "http://127.0.0.1:9",
-      model: "gemma2:2b",
+      model: "gemma4:e4b",
       timeoutMs: 1000,
       fetchImpl: async () => new Response("not-json", { status: 200 }),
     });

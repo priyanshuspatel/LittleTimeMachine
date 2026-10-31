@@ -49,7 +49,7 @@ export async function generateQuest(options?: {
 }): Promise<QuestResponse> {
   const rawIntention = options?.questIntention?.trim() || options?.userLocation?.trim() || "An outdoor spot or keepsake reminding me of childhood";
   const intention = rawIntention.length < 3 ? `${rawIntention} nostalgia quest` : rawIntention;
-  const fromTheirWords = `Near ${intention}, look closely for a detail weathered by time. Notice the texture, shadows, and subtle sounds of this spot. What forgotten memory or feeling from years past does it stir? Photograph it and record a few words for the archive.`;
+  const fromTheirWords = `Return to ${intention} and let yourself pause where old memories still linger. Notice one small detail weathered by the years—its texture, its quiet stillness, or how time has touched it. Standing with it now, what voice, season of life, or younger version of yourself feels closest to your heart? Photograph it and write a few honest words for the archive.`;
 
   if (options?.forceDemo) {
     await new Promise((resolve) => setTimeout(resolve, 800));

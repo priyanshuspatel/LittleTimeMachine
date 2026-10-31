@@ -6,7 +6,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   PUBLIC_BASE_URL: z.string().url().default("http://localhost:3000"),
   OLLAMA_BASE_URL: z.string().url().default("http://127.0.0.1:11434"),
-  OLLAMA_MODEL: z.string().min(1).default("gemma2:2b"),
+  OLLAMA_MODEL: z.string().min(1).default("gemma4:e4b"),
   OLLAMA_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
   ELEVENLABS_API_KEY: z.string().min(1, "ELEVENLABS_API_KEY is required"),
   ELEVENLABS_VOICE_ID: z.string().min(1).default("21m00Tcm4TlvDq8ikWAM"),
@@ -17,7 +17,7 @@ const envSchema = z.object({
   SENTRY_DSN: z.string().optional().default(""),
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(1),
   UPLOAD_DIR: z.string().min(1).default("uploads"),
-  HOST: z.string().min(1).default("127.0.0.1"),
+  HOST: z.string().min(1).default("0.0.0.0"),
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().max(10_000).default(30),
 });
 

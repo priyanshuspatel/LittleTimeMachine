@@ -32,7 +32,7 @@ export async function runQuestPipeline(
         "gen_ai.operation": "quest",
       },
       async (span) => {
-        const generated = await deps.textGenerator.complete(prompt, { numPredict: 220, temperature: 0.3 });
+        const generated = await deps.textGenerator.complete(prompt, { numPredict: 240, temperature: 0.55 });
         span.setAttribute("gen_ai.usage.input_tokens", generated.promptTokens);
         span.setAttribute("gen_ai.usage.output_tokens", generated.completionTokens);
         span.setAttribute("gen_ai.total_duration_ns", generated.totalDurationNs);

@@ -371,7 +371,7 @@ export function App() {
             <span>Little Time Machine · Touch Grass Archive</span>
           </p>
           <div className="flex items-center gap-2 text-[#9a846c] text-[11px]">
-            <span>Gemma 2</span>
+            <span>Gemma 4 E4B</span>
             <span>·</span>
             <span>ElevenLabs</span>
             <span>·</span>
@@ -639,7 +639,7 @@ function WalkScreen({
 
         <div className="mb-4">
           <span className="text-xs font-sans font-bold uppercase tracking-wider text-[#7a5b43]">
-            Quest Inscription · Local Gemma 2
+            Quest Inscription · Local Gemma 4 E4B
           </span>
         </div>
 
@@ -1230,7 +1230,7 @@ function SavingScreen({ label, subLabel }: { label: string; subLabel: string }) 
 
       <div className="flex items-center gap-2 rounded-full bg-[#24170f] border border-[#523522] px-4 py-1.5 text-xs font-sans text-[#d4af37] shadow-sm">
         <span className="h-2 w-2 rounded-full bg-[#d4af37] animate-ping" />
-        <span>Inscribing via Gemma 2 · ElevenLabs · Atlas</span>
+        <span>Inscribing via Gemma 4 E4B · ElevenLabs · Atlas</span>
       </div>
     </section>
   );

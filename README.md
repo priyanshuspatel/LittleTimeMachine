@@ -26,7 +26,7 @@ The word *screen* is purposefully emphasized – the journey is meant to live be
 - Photo capture and short text entry saved as a *stamp*.
 - Memories Library that displays stamps as small boxes, arranged like a diary.
 - Voice narration powered by ElevenLabs (optional).
-- AI‑generated hints via Ollama’s `gemma2:2b` model.
+- AI‑generated hints via Ollama’s `gemma4:e4b` model.
 - Error monitoring with Sentry.
 
 ---
@@ -39,7 +39,7 @@ flowchart LR
     end
     subgraph Backend["Express Server"]
         Server -->|Store/Retrieve| DB[(MongoDB Atlas)]
-        Server -->|AI Hint| Ollama["Ollama gemma2:2b"]
+        Server -->|AI Hint| Ollama["Ollama gemma4:e4b"]
         Server -->|Voice| Eleven[ElevenLabs]
         Server -->|Monitoring| Sentry
     end
@@ -55,7 +55,7 @@ flowchart LR
 - **Yarn** or **npm**
 - **Docker** (optional, for local MongoDB)
 - An **ElevenLabs** API key (optional for voice)
-- **Ollama** installed locally with the `gemma2:2b` model
+- **Ollama** installed locally with the `gemma4:e4b` model
 
 ### Install
 ```bash
@@ -105,7 +105,7 @@ Distributed under the MIT License. See `LICENSE` for more information.
 ---
 
 ## 🙏 Acknowledgements
-- **Ollama** – for the `gemma2:2b` language model that powers subtle hints.
+- **Ollama** – for the `gemma4:e4b` language model that powers subtle hints.
 - **ElevenLabs** – for optional voice narration.
 - **MongoDB Atlas** – for the cloud database that stores your stamps.
 - **Sentry** – for error monitoring.
@@ -135,7 +135,7 @@ flowchart LR
 
 ## Prize categories this server actually uses
 
-- Best Use of Gemma — `gemma2:2b` via local Ollama for the reflection
+- Best Use of Gemma — `gemma4:e4b` via local Ollama for the reflection
 - Best Use of ElevenLabs — narrated quest and narrated reflection
 - Best Use of MongoDB Atlas — the memory card
 - Best Use of Sentry Agent Tracing — nested spans for Gemma, ElevenLabs, and the Atlas write
@@ -143,7 +143,7 @@ flowchart LR
 ## Requirements
 
 - Node.js 20+
-- [Ollama](https://ollama.com) with `gemma2:2b` pulled
+- [Ollama](https://ollama.com) with `gemma4:e4b` pulled
 - An ElevenLabs API key
 - A MongoDB Atlas connection string
 - A Sentry DSN if you want traces exported (the server still runs without one)
@@ -154,7 +154,7 @@ flowchart LR
 cp .env.example .env
 # fill ELEVENLABS_API_KEY and MONGODB_URI
 
-ollama pull gemma2:2b
+ollama pull gemma4:e4b
 
 npm install
 npm run dev
@@ -221,4 +221,5 @@ Set `SENTRY_DSN` to export them. Without a DSN the spans stay local and nothing 
 
 ## Why the open model is the core
 
-Gemma 2 2B runs on the laptop through Ollama and writes the reflection from the words the person typed. The quest itself is a specific invitation, so the small model cannot replace it with a bench or a tree. The written experience is not sent to a speech-to-text service. ElevenLabs narrates the quest and the reflection. Swap `OLLAMA_MODEL` when you want a different open weight for the reflection.
+Gemma 4 E4B runs on the laptop through Ollama and writes the reflection from the words the person typed. The quest itself is a specific invitation, so the small model cannot replace it with a bench or a tree. The written experience is not sent to a speech-to-text service. ElevenLabs narrates the quest and the reflection. Swap `OLLAMA_MODEL` when you want a different open weight for the reflection.
+

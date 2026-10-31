@@ -1,0 +1,33 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "app": {
+      "root": ".",
+      "framework": "express",
+      "buildCommand": "npm run build",
+      "entrypoint": "dist/index.js",
+      "installCommand": "npm install"
+    },
+    "web": {
+      "root": "web",
+      "framework": "vite",
+      "buildCommand": "npm run build",
+      "installCommand": "npm install",
+      "bindings": [
+        {
+          "type": "service",
+          "service": "app",
+          "format": "url",
+          "env": "VITE_API_URL"
+        }
+      ]
+    }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": { "service": "app" } },
+    { "source": "/media/(.*)", "destination": { "service": "app" } },
+    { "source": "/health", "destination": { "service": "app" } },
+    { "source": "/(.*)", "destination": { "service": "web" } }
+  ]
+}
+
